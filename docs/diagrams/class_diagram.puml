@@ -1,0 +1,170 @@
+@startuml class_diagram
+title Диаграмма классов 7. Имитационная модель системы исполнения ордеров (вариант 27)
+skinparam shadowing false
+skinparam defaultFontSize 12
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam nodesep 40
+skinparam ranksep 60
+hide empty members
+
+package "Управление моделью" {
+  class Simulator {
+    - config : SimulationConfig
+    - now : double
+    + run() : SummaryReport
+    - handleArrival(event)
+    - handleCompletion(event)
+  }
+  class SimulationConfig {
+    + bufferCapacity : int
+    + engineCount : int
+    + totalOrders : int
+    + stepMode : boolean
+  }
+  class EventCalendar {
+    + schedule(event)
+    + pollNext() : Event
+    + isEmpty() : boolean
+  }
+  class Event {
+    + type : EventType
+    + time : double
+    + sourceId : int
+    + engineId : int
+  }
+  enum EventType {
+    ORDER_ARRIVAL
+    ORDER_COMPLETED
+  }
+}
+
+package "Предметная область" {
+  class Order {
+    + sourceId : int
+    + seq : int
+    + tArrival : double
+    + tStart : double
+    + tEnd : double
+    + status : OrderStatus
+    + waitTime() : double
+    + serviceTime() : double
+    + sojournTime() : double
+  }
+  enum OrderStatus {
+    CREATED
+    IN_BUFFER
+    IN_SERVICE
+    COMPLETED
+    REJECTED
+  }
+  class OrderSource {
+    + id : int
+    + priority : int
+    + generated : int
+    + nextInterval() : double
+    + createOrder(now) : Order
+  }
+  class Buffer {
+    - cells : Order[]
+    + firstFreeCell() : int
+    + put(cell, order)
+    + remove(cell) : Order
+    + occupiedCells() : List
+    + isEmpty() : boolean
+  }
+  class ExecutionEngine {
+    + id : int
+    + current : Order
+    + busyTime : double
+    + isFree() : boolean
+    + start(order, now) : double
+    + finish(now) : Order
+  }
+  interface RandomLaw {
+    + next() : double
+  }
+  class UniformLaw {
+    - a : double
+    - b : double
+  }
+  class ExponentialLaw {
+    - mu : double
+  }
+}
+
+package "Диспетчеры" {
+  class PlacementDispatcher {
+    + place(order, now) : PlacementResult
+  }
+  class SelectionDispatcher {
+    + selectFor(engine, now) : Order
+  }
+  class PlacementResult {
+    + status : PlacementStatus
+    + engineId : int
+    + cell : int
+  }
+  enum PlacementStatus {
+    STARTED
+    BUFFERED
+    REJECTED
+  }
+}
+
+package "Статистика и вывод" {
+  class StatisticsCollector {
+    + onGenerated(order)
+    + onStarted(order, wait)
+    + onCompleted(order, now)
+    + onRejected(order)
+    + buildSummary(tTotal) : SummaryReport
+  }
+  class SourceStats {
+    + generated : int
+    + rejected : int
+    + sumWait : double
+    + sumService : double
+    + pRejected() : double
+  }
+  class EngineStats {
+    + busyTime : double
+    + utilization(tTotal) : double
+  }
+  class TimelineRecorder {
+    + recordStep(now, state)
+  }
+  class SummaryReport {
+    + sources : List<SourceStats>
+    + engines : List<EngineStats>
+  }
+}
+
+Simulator *-- EventCalendar
+Simulator *-- SimulationConfig
+Simulator o-- "2" OrderSource
+Simulator *-- Buffer
+Simulator o-- "M" ExecutionEngine
+Simulator *-- PlacementDispatcher
+Simulator *-- SelectionDispatcher
+Simulator *-- StatisticsCollector
+Simulator o-- TimelineRecorder
+EventCalendar o-- "*" Event
+Event --> EventType
+Order --> OrderStatus
+OrderSource ..> Order : создаёт
+OrderSource --> RandomLaw : ИЗ2
+ExecutionEngine --> RandomLaw : ПЗ1
+UniformLaw ..|> RandomLaw
+ExponentialLaw ..|> RandomLaw
+Buffer o-- "K" Order
+PlacementDispatcher --> Buffer : Д1ОЗ3
+PlacementDispatcher --> ExecutionEngine : Д2П1
+PlacementDispatcher ..> PlacementResult
+PlacementResult --> PlacementStatus
+SelectionDispatcher --> Buffer : Д2Б4
+SelectionDispatcher --> ExecutionEngine
+StatisticsCollector *-- SourceStats
+StatisticsCollector *-- EngineStats
+StatisticsCollector ..> SummaryReport
+@enduml

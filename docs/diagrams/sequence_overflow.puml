@@ -1,0 +1,72 @@
+@startuml sequence_overflow
+title Диаграмма последовательности 6.2. Сквозной сценарий: заполнение буфера, отказ и выбор по приоритету\n(буфер K = 3, два движка; обозначение ордера (i.j): i — источник, j — порядковый номер)
+skinparam shadowing false
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign left
+
+participant "И1 (VIP)" as S1
+participant "И2 (Standard)" as S2
+participant "PlacementDispatcher\n(ДП)" as DP
+participant "Buffer\n(БП, K = 3)" as Buf
+participant "П1" as E1
+participant "П2" as E2
+participant "SelectionDispatcher\n(ДВ)" as DV
+participant "StatisticsCollector" as Stat
+
+note over E1, E2
+  Исходное состояние на t = 1,0:
+  П1 занят ордером (2.1) до t = 7,0;
+  П2 занят ордером (2.2) до t = 6,0;
+  буфер пуст: [ — | — | — ]
+end note
+
+== t = 2,0 — ордер (2.3), оба движка заняты ==
+S2 -> DP : (2.3)
+DP -> E1 : findFree() — занят
+DP -> E2 : findFree() — занят
+DP -> Buf : firstFreeCell() → ячейка 1
+note over Buf : [ (2.3) | — | — ]
+
+== t = 3,0 — ордер (1.1) ==
+S1 -> DP : (1.1)
+DP -> Buf : firstFreeCell() → ячейка 2
+note over Buf : [ (2.3) | (1.1) | — ]
+
+== t = 3,5 — ордер (2.4) ==
+S2 -> DP : (2.4)
+DP -> Buf : firstFreeCell() → ячейка 3
+note over Buf : [ (2.3) | (1.1) | (2.4) ] — буфер заполнен
+
+== t = 4,0 — ордер (1.2): все движки заняты и буфер полон ==
+S1 -> DP : (1.2)
+DP -> Buf : firstFreeCell() → свободных нет
+DP -> Stat : onRejected((1.2)) — Д1ОО5
+note over DP, Buf : ORDER_REJECTED: queue full\nотклонён вновь пришедший ордер (даже VIP), буфер не изменился
+
+== t = 6,0 — П2 завершает (2.2), выбор из буфера (Д2Б4) ==
+E2 -> DV : ORDER_COMPLETED
+DV -> Buf : occupiedCells()
+note over DV : источник 1 приоритетнее источника 2 → выбран (1.1)
+DV -> Buf : remove(ячейка 2)
+DV -> E2 : start((1.1)), ожидание 3,0, T_обсл = 3,0 → конец в t = 9,0
+note over Buf : [ (2.3) | — | (2.4) ]
+
+== t = 6,5 — ордер (1.3): освободившееся место внутри буфера (Д1ОЗ3) ==
+S1 -> DP : (1.3)
+DP -> Buf : firstFreeCell() → ячейка 2
+note over Buf : [ (2.3) | (1.3) | (2.4) ] — сдвига не было
+
+== t = 7,0 — П1 завершает (2.1), выбор из буфера ==
+E1 -> DV : ORDER_COMPLETED
+note over DV : наименьший номер источника — у (1.3)
+DV -> Buf : remove(ячейка 2)
+DV -> E1 : start((1.3)), ожидание 0,5, T_обсл = 1,5 → конец в t = 8,5
+note over Buf : [ (2.3) | — | (2.4) ]
+
+== t = 8,5 — П1 завершает (1.3): в буфере остались только ордера И2 ==
+E1 -> DV : ORDER_COMPLETED
+note over DV : приоритет равный → выбран последний поступивший:\n(2.4) пришёл в t = 3,5 позже, чем (2.3) в t = 2,0
+DV -> Buf : remove(ячейка 3)
+DV -> E1 : start((2.4)), ожидание 5,0, T_обсл = 4,0 → конец в t = 12,5
+note over Buf : [ (2.3) | — | — ]
+@enduml

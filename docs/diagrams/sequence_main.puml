@@ -1,0 +1,78 @@
+@startuml sequence_main
+title Диаграмма последовательности 6.1. Главный цикл моделирования\n(ветки ORDER_ARRIVAL и ORDER_COMPLETED)
+skinparam shadowing false
+skinparam defaultFontSize 12
+skinparam sequenceMessageAlign left
+autonumber
+
+participant "Simulator" as Sim
+participant "EventCalendar" as Cal
+participant "OrderSource\n(И1, И2)" as Src
+participant "PlacementDispatcher\n(ДП)" as DP
+participant "ExecutionEngine\n(П1, П2)" as Eng
+participant "Buffer\n(БП)" as Buf
+participant "SelectionDispatcher\n(ДВ)" as DV
+participant "StatisticsCollector" as Stat
+participant "TimelineRecorder\n(ОД3)" as Rec
+
+loop пока календарь событий не пуст
+  Sim -> Cal : pollNext()
+  Cal --> Sim : event(type, time, payload)
+  note right of Sim : now := event.time
+
+  alt event.type = ORDER_ARRIVAL
+    Sim -> Src : createOrder(sourceId, now)
+    Src --> Sim : order (i.j), tПост = now
+    Sim -> Stat : onGenerated(order)
+    opt сгенерировано ордеров < N
+      Sim -> Src : nextInterval(sourceId)
+      Src --> Sim : Δ ~ U[a_i, b_i]
+      Sim -> Cal : schedule(ORDER_ARRIVAL, now + Δ)
+    end
+    Sim -> DP : place(order, now)
+    DP -> Eng : findFree()
+    note right of Eng : Д2П1: перебор П1, П2, … начиная с П1
+    alt свободный движок найден
+      DP -> Eng : start(order, now)
+      Eng --> DP : tКон = now + T_обсл, T_обсл ~ Exp(μ)
+      DP -> Cal : schedule(ORDER_COMPLETED, tКон)
+      DP -> Stat : onStarted(order, wait = 0)
+    else все движки заняты
+      DP -> Buf : firstFreeCell()
+      note right of Buf : Д1ОЗ3: первая свободная ячейка\nс начала буфера, без сдвига
+      alt свободная ячейка есть
+        DP -> Buf : put(cell, order)
+      else буфер заполнен
+        DP -> Stat : onRejected(order)
+        note right of Stat : Д1ОО5: отклоняется вновь пришедший ордер,\nбуфер не изменяется
+      end
+    end
+    DP --> Sim : PlacementResult (STARTED / BUFFERED / REJECTED)
+
+  else event.type = ORDER_COMPLETED
+    Sim -> Eng : finish(engineId, now)
+    Eng --> Sim : завершённый ордер
+    Sim -> Stat : onCompleted(order, now)
+    Sim -> DV : selectFor(engineId, now)
+    DV -> Buf : occupiedCells()
+    Buf --> DV : ордера в ячейках
+    note right of DV : Д2Б4: наименьший номер источника;\nпри равенстве — последний поступивший
+    alt буфер не пуст
+      DV -> Buf : remove(cell)
+      DV -> Eng : start(order, now)
+      Eng --> DV : tКон = now + T_обсл, T_обсл ~ Exp(μ)
+      DV -> Cal : schedule(ORDER_COMPLETED, tКон)
+      DV -> Stat : onStarted(order, wait = now − tПост)
+    else буфер пуст
+      DV --> Sim : движок остаётся свободным
+    end
+  end
+
+  opt пошаговый режим
+    Sim -> Rec : recordStep(now, state)
+  end
+end
+
+Sim -> Stat : buildSummary(Tреал)
+Stat --> Sim : таблицы ОР1
+@enduml
